@@ -1,0 +1,6 @@
+Paste the configuration from the documentation of sphinx_ into the munin-node file.
+
+ [sphinx_*]
+ env.searchd_log_path /path/to/searchd.log
+ env.query_log_path /path/to/searchd.query.log
+ command /usr/local/bin/ruby %c

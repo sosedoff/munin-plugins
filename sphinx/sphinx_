@@ -1,0 +1,280 @@
+#!/usr/bin/env ruby
+pod=<<-POD
+
+=head1 NAME
+sphinx_ - Munin plugin to monitor various sphinx statistics.
+
+=head1 APPLICABLE SYSTEMS
+All systems that have sphinx installed.
+
+=head1 CONFIGURATION
+This module has 5 separate graph datasets:
+query_rate
+query_time
+results_returned
+index_rebuilds
+time_per_rebuild
+
+For each of them, symlink the sphinx_ script to sphinx_foo where foo is
+the dataset name.
+
+The script has to be able to access the sphinx log file.
+This configuration section shows the defaults of the plugin:
+
+  [sphinx_*]
+  env.searchd_log_path /path/to/searchd.log
+  env.query_log_path /path/to/searchd.query.log
+  command /usr/local/bin/ruby %c
+
+Options
+  env.interval 300                            # Munin interval in seconds (used for graphs and caching)
+  env.graph_category 'Sphinx'                 # Graph Category. Defaults to Sphinx.
+
+
+=head1 MAGIC MARKERS
+  #%# family=auto
+  #%# capabilities=autoconf suggest
+
+=head1 VERSION
+1.0
+
+=head1 BUGS
+None known
+
+=head1 TODO
+Parse and report I/O stats if present
+
+=head1 AUTHOR
+Olivier Brisse (http://github.com/ouranos/munin-plugins)
+Based on the scout plugin written by Sam Sinensky : http://github.com/samsinensky/scout_sphinx_monitoring
+
+=head1 LICENSE
+MIT
+
+POD
+
+# Globals
+DATASETS        = ["query_rate", "query_time", "results_returned", "index_rebuilds", "time_per_rebuild"]
+GRAPH_CATEGORY  = ENV['graph_category'] || 'Sphinx'
+INTERVAL        = ENV['interval'] ? ENV['interval'].to_i : 300
+LAST_RUN        = (Time.now - INTERVAL)
+QUERY_LOG_PATH  = ENV['query_log_path']
+SEARCHD_LOG_PATH= ENV['searchd_log_path']
+
+# Check if we can run the plugin on this system
+def autoconf
+  begin
+    require 'rubygems'
+    require 'time'
+    gem 'elif'
+  rescue Exception => e
+    puts "no (Gem not found: #{e}"
+    exit 1
+  end
+
+  puts "yes"
+  exit 0
+end
+
+# Suggest a list of link names for the plugin.
+def suggest
+  DATASETS.each {|dataset| puts dataset}  
+end
+
+# Output the config
+def config
+  # Check if we support the dataset
+  exit 2 if FUNCTION.nil? or !DATASETS.include?(FUNCTION)
+
+  graph_config = {
+          'query_rate' => {
+                  'graph_args' => '--base 1000 -l 0',
+                  'graph_title' => 'Sphinx queries',
+                  'graph_vlabel' => 'Queries per minute',
+                  'graph_info' => 'The amount of queries processed by this Sphinx server',
+                  'query_rate.label' => 'queries',
+                  },
+          'query_time' => {
+                  'graph_title' => 'Average query time',
+                  'graph_vlabel' => 'seconds',
+                  'query_time.label' => 'query time',
+                  },
+          'results_returned' => {
+                  'graph_title' => 'Average results returned',
+                  'graph_vlabel' => 'results',
+                  'results_returned.label' => 'results',
+                  },
+          'index_rebuilds' => {
+                  'graph_title' => 'Index rebuilds',
+                  'graph_vlabel' => 'rebuilds',
+                  'index_rebuilds.label' => 'index rebuilds',
+                  },
+          'time_per_rebuild' => {
+                  'graph_title' => 'Average time per rebuild',
+                  'graph_vlabel' => 'seconds',
+                  'index_rebuilds.label' => 'time per rebuild',
+                  },
+          }
+
+      puts "graph_category #{GRAPH_CATEGORY}"
+      graph_config[FUNCTION].each do |key, value|
+        puts "#{key} #{value}"
+      end
+  exit 0
+end
+
+# Collect the data
+# <tt>debug</tt> Show debug information
+def run(debug = false)
+  # Check if we support the dataset
+  exit 2 if FUNCTION.nil? or !DATASETS.include?(FUNCTION)
+
+  require 'rubygems'
+  require 'time'
+  require 'elif'
+
+  parse_query_log = true if ["query_rate", "query_time", "results_returned"].include?(FUNCTION)
+  parse_searchd_log = true if ["index_rebuilds", "time_per_rebuild"].include?(FUNCTION)
+
+  report_data = {
+          :query_rate => 0,
+          :query_time => 0,
+          :results_returned => 0,
+          :index_rebuilds => 0,
+          :time_per_rebuild => 0
+  }
+
+  if parse_query_log
+    #calculate the stats based on queries, rate, avg_time and average results returned
+
+    #Load each line from the log in if it happened after the last request used in the previous report
+    queries = 0
+    total_query_time = 0
+    total_results_returned = 0
+    begin
+      if parse_query_log
+        Elif.foreach(QUERY_LOG_PATH) do |line|
+          #extract the date form the line and make sure it occured after LAST_RUN
+          line_data = parse_query_line(line)
+          next if line_data.nil?
+          if line_data.timestamp.to_f <= LAST_RUN.to_f
+            break
+          else
+            queries += 1
+            total_query_time += line_data.time_spent
+            total_results_returned += line_data.results_returned
+          end
+        end
+
+        puts "Parsed #{queries} queries." if debug
+
+        if queries > 0
+          # calculate the time between runs in minutes
+          interval = (INTERVAL/60).to_f # convert to minutes
+
+          # determine the rate of queries in queries/min
+          query_rate                             = queries / interval
+          report_data[:query_rate]               = sprintf("%.2f", query_rate)
+          report_data[:query_time]       = sprintf("%.4f", total_query_time/queries)
+          report_data[:results_returned] = sprintf("%.4f", total_results_returned/queries)
+        end
+      end
+    rescue Errno::ENOENT => error
+      $stderr.puts("Unable to find the query log file", "Could not find the query log at the specified path: #{QUERY_LOG_PATH}.")
+    rescue Exception => error
+      $stderr.puts("Error while processing query log:\n#{error.class}: #{error.message}", error.backtrace.join("\n"))
+    end
+  end
+
+  if parse_searchd_log
+    #calculate the index rotation stats, only for index rotations that occur completely in the interval
+    total_rotations = 0
+    total_length_rotations = 0
+    finish_time = nil
+    begin
+      Elif.foreach(SEARCHD_LOG_PATH) do |line|
+        line_data = parse_log_line(line)
+        next if line_data.nil?
+        if line_data.timestamp.to_f <= LAST_RUN.to_f
+          break
+        else
+          if finish_time
+            if line_data.step == :start
+              total_rotations += 1
+              total_length_rotations += finish_time.to_f - line_data.timestamp.to_f
+              finish_time = nil
+            end
+          else
+            finish_time = line_data.timestamp if line_data.step == :finish
+          end
+        end
+      end
+
+      if total_rotations > 0
+        report_data[:index_rebuilds] = total_rotations
+        report_data[:time_per_rebuild] = sprintf("%.4f", total_length_rotations/total_rotations)
+      end
+    rescue Errno::ENOENT => error
+      return error("Unable to find the searchd log file", "Could not find the searchd log at the specified path: #{SEARCHD_LOG_PATH}.")
+    rescue Exception => error
+      return error("Error while processing searchd log:\n#{error.class}: #{error.message}", error.backtrace.join("\n"))
+    end
+  end
+
+  # Output the value
+  puts "#{FUNCTION}.value #{report_data[FUNCTION.to_sym]}"
+end
+
+QueryData = Struct.new(:timestamp, :time_spent, :results_returned)
+
+LogData = Struct.new(:timestamp, :step)
+
+def parse_query_line(line)
+  #[query-date] query-time [match-mode/filters-count/sort-mode total-matches 
+  line_pattern = /^\[(.*?)\]\s([\d\.]+).*?\[\w+\/\d+\/\S+\s(\d+)\s\(/
+
+  match = line.match(line_pattern)
+  if match
+    time = match.captures[0]
+    time_spent = match.captures[1]
+    results_returned = match.captures[2]
+    QueryData.new(Time.parse(time), time_spent.to_f, results_returned.to_i)
+  else
+    return nil
+  end
+end
+
+def parse_log_line(line)
+  time = line.match(/\[(.*?)\]/)
+  if time
+    time = time.captures.first
+  else
+    return nil
+  end
+  step = if line.match('rotating finished')
+    :finish
+  elsif line.match('rotating indices')
+    :start
+  else
+    :intermediate
+  end
+  LogData.new(Time.parse(time), step)
+end
+
+
+# Main
+File.basename(__FILE__) =~ /sphinx_(.+)*$/
+FUNCTION = $1
+
+case ARGV[0]
+  when "config"
+    config
+  when  "autoconf"
+    autoconf
+  when "suggest"
+    suggest
+  when "debug"
+    run(true)
+  else
+    run()
+end

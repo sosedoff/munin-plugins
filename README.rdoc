@@ -4,5 +4,10 @@ A collection of useful munin plugins for server monitoring
 
 == Plugins
 
-* nginx - monitor nginx memory, requests, status
-* passenger - monitor Phusion Passenger memory stats
+* nginx
+* passenger
+* php-fpm
+* varnish
+* redis
+* sphinx
+* memcached
