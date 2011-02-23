@@ -1,0 +1,59 @@
+= Nginx Plugin
+
+Monitors nginx's memory utilization, requests-per-second and connections stats.
+
+Statistics is based on internal stub module which ships with the source code by default.
+
+* Language: Perl
+* Authors: António P. P. Almeida <appa@perusio.net>
+
+== Requirements
+
+You'll need to install libwww-perl module (if not installed)
+
+  apt-get install libwww-perl
+
+== Configuration
+
+You'll need to include additional module when building from source:
+
+  ./configure YOUR_OPTS --with-http_stub_status_module
+  
+Then you need to add or create a virtual host to serve munin plugin on localhost:
+ 
+  server {
+    listen 80;
+    server_name localhost;
+  
+    location /nginx_status {
+      stub_status on;
+      access_log off;
+      allow 127.0.0.1;
+      deny all;
+    }
+  }
+
+Make sure to restart/reload your server after those changes.
+
+Now, test it (via curl):
+
+  curl http://localhost/nginx_status
+  
+  # Should respond with similar data
+  Active connections: 128 
+  server accepts handled requests
+  208085 208085 436303 
+  Reading: 4 Writing: 14 Waiting: 110
+  
+== Integration
+
+Edit /etc/munin/plugin-conf.d/munin-node and add the lines
+
+ [nginx*]
+ env.url http://localhost/nginx_status
+ 
+Restart munin-node with
+
+  sudo /etc/init.d/munin-node restart
+  
+And statistics should be available in 5 minutes.
