@@ -1,0 +1,5 @@
+phpfpm_average
+phpfpm_connections
+phpfpm_memory
+phpfpm_processes
+phpfpm_status
