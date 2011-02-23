@@ -102,7 +102,7 @@ chomp(my $fqdn=`hostname -f`);
 
 ## Environment defined variables.
 ## The default URL is nginx_status if different set it in the environment.
-my $URL = exists $ENV{'url'} ? $ENV{'url'} : "http://$fqdn/nginx_status";
+my $URL = exists $ENV{'url'} ? $ENV{'url'} : "http://localhost/nginx_status";
 ## The default user agent is ngnix-status-verifier/0.1 if different
 ## set it in the environment.
 my $UA = exists $ENV{'ua'} ? $ENV{'ua'} : 'nginx-status-verifier/0.1';
