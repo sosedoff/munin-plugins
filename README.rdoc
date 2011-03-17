@@ -12,3 +12,4 @@ A collection of useful munin plugins for server monitoring
 * sphinx
 * memcached
 * resque
+* mongodb
