@@ -1,0 +1,5 @@
+redis_memory
+redis_changes_since_last_save
+redis_total_commands
+redis_total_connections
+redis_users
