@@ -1,0 +1,7 @@
+nginx
+passenger
+php-fpm
+redis
+resque
+sphinx
+varnish 

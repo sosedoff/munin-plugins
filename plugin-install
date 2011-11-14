@@ -1,7 +1,40 @@
-#!/bin/bash
-# ------------------------------------------------------------------------------
-# Munin plugin installation tool
-# ------------------------------------------------------------------------------
+#!/usr/bin/env ruby
 
-# TODO: Actions
-# ./plugin-install NAME
+module Manager
+  module Commands
+    def help
+      # TODO
+    end
+    
+    def list
+      # TODO
+    end
+    
+    def check
+      # TODO
+    end
+    
+    def install(list)
+      # TODO
+    end
+    
+    def uninstall(list)
+      # TODO
+    end
+  end
+  
+  class Session
+    COMMANDS = %w(help list install uninstall check)
+    
+    def initialize(args)
+      @args = args
+    end
+    
+    def run
+      command = @args.shift || 'help'
+    end
+  end
+end
+
+session = Manager::Session.new(ARGV.dup)
+session.run
